@@ -153,6 +153,19 @@ NSString* getTemporaryFilePath(void) {
 	return tempFileStringNS;
 }
 
+// From https://developer.apple.com/forums/thread/653009 (https://archive.is/etgKB)
+int isRosetta(void) {
+	int ret = 0;
+	size_t size = sizeof(ret);
+	// Call the sysctl and if successful return the result
+	if (sysctlbyname("sysctl.proc_translated", &ret, &size, NULL, 0) != -1)
+		return ret;
+	// If "sysctl.proc_translated" is not present then must be native
+	if (errno == ENOENT)
+		return 0;
+	return -1;
+}
+
 // Converts a Cocoa path to an HFS (colon-delimited) path
 NSString* posixPathToHFSPath(NSString *posixPath) {
 	CFURLRef url = CFURLCreateWithFileSystemPath(NULL, (CFStringRef)

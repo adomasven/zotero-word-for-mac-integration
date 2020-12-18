@@ -690,14 +690,18 @@ statusCode setCode(field_t *field, const char code[]) {
 			}
 		}
 		NSString* rawCode = [NSString stringWithFormat:@"%@%@ ",
-							 FIELD_PREFIXES[0],
-							 [NSString stringWithUTF8String:code]];
-		[field->sbCodeRange setContent:rawCode];
-		CHECK_STATUS
-
-		[field->rawCode release];
-		[rawCode retain];
-		field->rawCode = rawCode;
+			 FIELD_PREFIXES[0],
+			 [NSString stringWithUTF8String:code]];
+			[field->rawCode release];
+			[rawCode retain];
+			field->rawCode = rawCode;
+		if (isRosetta() && strlen(code) >= 2048) {
+			ENSURE_OK(setFieldCodeRosetta(field, rawCode));
+		} else {
+			
+			[field->sbCodeRange setContent:rawCode];
+			CHECK_STATUS
+		}
 	}
 	
 	// Store code in struct
@@ -709,6 +713,66 @@ statusCode setCode(field_t *field, const char code[]) {
 	memcpy(field->code, code, codeLength);
 	
 	return STATUS_OK;
+	HANDLE_EXCEPTIONS_END
+}
+
+// Sets the field code
+statusCode setFieldCodeRosetta(field_t *field, NSString *rawCode) {
+	HANDLE_EXCEPTIONS_BEGIN
+	[field->doc->lock lock];
+	int fieldIndex = 1;
+	fieldIndex = (int) getEntryIndex(field->doc, field->sbField);
+	CHECK_STATUS_LOCKED(field->doc)
+	
+    // escape all quotes `\` and escape symbols `"` in that order
+    NSString *escapedCode = [[rawCode stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+	
+	NSString *appleScript = [NSString stringWithFormat:
+							 @"tell application \"Word\"\n"
+								@"set doc to first document of documents whose name is \"%@\"\n"
+								@"set fld to %%@\n"
+								@"set content of field code of fld to \"%@\"\n"
+							 @"end tell",
+							 [field->doc->sbDoc name], escapedCode];
+	CHECK_STATUS_LOCKED(field->doc)
+	
+	if (field->noteType == NOTE_FOOTNOTE) {
+		appleScript = [NSString stringWithFormat:appleScript,
+					   [NSString stringWithFormat:
+						@"field %d of (get story range doc story type footnotes story)",
+						fieldIndex]];
+	} else if (field->noteType == NOTE_ENDNOTE) {
+		appleScript = [NSString stringWithFormat:appleScript,
+					   [NSString stringWithFormat:
+						@"field %d of (get story range doc story type endnotes story)",
+						fieldIndex]];
+	} else {
+		appleScript = [NSString stringWithFormat:appleScript,
+					   [NSString stringWithFormat:
+						@"field %d of doc",
+						fieldIndex]];
+	}
+	
+	NSTask *task;
+	task = [[NSTask alloc] init];
+	[task autorelease];
+	[task setLaunchPath: @"/usr/bin/arch"];
+	
+	[task setArguments:[NSArray arrayWithObjects: @"-arm64", @"/usr/bin/osascript", @"-e",
+						appleScript, nil]];
+	NSPipe *stdOutPipe = [NSPipe pipe];
+	[task setStandardError:stdOutPipe];
+	
+	[task launch];
+	[task waitUntilExit];
+	int status = [task terminationStatus];
+	
+	[field->doc->lock unlock];
+	if (status == 0) {
+		return STATUS_OK;
+	} else {
+		[NSException raise:NSGenericException format:@"Failed to set field code via osascript: %@", [[NSString alloc] initWithData:[[stdOutPipe fileHandleForReading] availableData] encoding:NSUTF8StringEncoding]];
+	}
 	HANDLE_EXCEPTIONS_END
 }
 

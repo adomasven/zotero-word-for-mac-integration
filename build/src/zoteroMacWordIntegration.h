@@ -26,6 +26,7 @@
 #define zoteroMacWordIntegration_h
 
 #include "Word.h"
+#import <sys/sysctl.h>
 enum STATUS {
 	STATUS_OK = 0,
 	STATUS_EXCEPTION = 1,
@@ -231,6 +232,7 @@ statusCode flagOSError(OSStatus status, const char function[], NSString* file,
 void clearError(void);
 char* getError(void);
 NSInteger getErrorCode(void);
+int isRosetta(void);
 
 void storeCursorLocation(document_t* doc);
 statusCode moveCursorOutOfNote(document_t* doc);
@@ -299,6 +301,7 @@ statusCode selectField(field_t* field);
 statusCode setText(field_t* field, const char string[], bool isRich);
 statusCode getText(field_t* field, char** returnValue);
 statusCode setCode(field_t *field, const char code[]);
+statusCode setFieldCodeRosetta(field_t *field, NSString *rawCode);
 statusCode getNoteIndex(field_t* field, unsigned long *returnValue);
 
 statusCode initField(document_t *doc, WordField* sbField, short noteType,

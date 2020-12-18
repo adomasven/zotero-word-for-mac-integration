@@ -1312,7 +1312,7 @@ statusCode setProperty(document_t *doc, NSString* propertyName,
 		} else {
 			clearError();
 			
-			if(doc->wordVersion == 2004) {
+			if(doc->wordVersion == 2004 || (isRosetta() && propertyValueLength >= 2048)) {
 				// In Word 2004, we need to insert the custom document property
 				// at the end of the active document. Otherwise, it doesn't
 				// work.
