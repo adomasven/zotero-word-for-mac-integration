@@ -36,6 +36,7 @@ var Plugin = new function() {
 	this.EXTENSION_DIR = "zotero-macword-integration";
 	this.APP = 'Microsoft Word';
 	this.VERSION_FILE = 'resource://zotero-macword-integration/version.txt';
+	this.DISABLE_PROGRESS_WINDOW = true;
 
 	// Bump to make Zotero update the template (Zotero.dotm) for existing installs. Do not remove "pre"
 	this.LAST_INSTALLED_FILE_UPDATE = "7.0.5pre";
@@ -48,7 +49,24 @@ var Plugin = new function() {
 		Zotero.debug("Installing ZoteroMacWordIntegration");
 		try {
 			const { Installer } = ChromeUtils.importESModule('chrome://zotero-macword-integration/content/zoteroMacWordIntegration.mjs');
-			var installer = new Installer();
+			const installer = new Installer();
+			const isWordInstalled = await installer.isWordInstalled();
+			if (!isWordInstalled) return;
+			const macOSVersion = (await Zotero.getOSVersion()).split(' ')[1];
+			const dontAskAgainVersion = zpi.prefBranch.getCharPref('installationWarning.dontAskAgainVersion')
+			// TODO DO NOT COMMIT
+			// const isSequoia = Zotero.Utilities.semverCompare(macOSVersion, "15.0.0") >= 0
+			const isSequoia = Zotero.Utilities.semverCompare(macOSVersion, "14.0.0") >= 0
+			const userDoesNotWantToBeAskedAgain = Zotero.Utilities.semverCompare(dontAskAgainVersion, this.LAST_INSTALLED_FILE_UPDATE) >= 0;
+			if (!zpi.force && isSequoia) {
+				if (userDoesNotWantToBeAskedAgain) return;
+				const shouldProceed = await this.displayPermissionWarningBanner();
+				if (!shouldProceed) return;
+				// Since the user confirmed that they want to install the plugin
+				// we should never fail silently here, especially since they might then
+				// deny access to required file location
+				zpi.failSilently = false
+			}
 			await installer.run();
 			zoteroPluginInstaller.success();
 		} catch(e) {
@@ -58,14 +76,30 @@ var Plugin = new function() {
 					"You cancelled installation of Zotero Word for Mac Integration. To install later, visit the Cite pane in the Zotero preferences.");
 				zoteroPluginInstaller.cancelled();
 			}
-			else if (!zpi.force && message.includes("Word does not appear to be installed on this computer.")) {
-				// Do not display this as an error if not installing via the preferences window
-				zoteroPluginInstaller.success();
-			}
 			else {
 				zoteroPluginInstaller.error("Installation could not be completed because an error occurred.\n\n"+e);
 				throw e;
 			}
 		}
+	}
+	
+	this.displayPermissionWarningBanner = async function() {
+		zoteroPluginInstaller.debug('Displaying a permission warning banner');
+		const remindInterval = 60 * 60 * 24 * 7; // Remind every 7 days
+		const lastDisplayed = zoteroPluginInstaller.prefBranch.getIntPref('installationWarning.lastDisplayed');
+		if (lastDisplayed > Math.round(Date.now() / 1000) - remindInterval) {
+			return false;
+		}
+		let zp = Zotero.getActiveZoteroPane()
+		let result = await zp.showMacWordPluginInstallWarning()
+		zoteroPluginInstaller.debug('User closed banner with ' + JSON.stringify(result));
+		if (result.install) return true;
+		else if (result.dismiss) return false;
+		else if (result.dontAskAgain) {
+			zoteroPluginInstaller.prefBranch.setCharPref('installationWarning.dontAskAgainVersion', zoteroPluginInstaller._currentPluginVersion)
+			return false;
+		}
+		// Dismissed with remind later.
+		zoteroPluginInstaller.prefBranch.setIntPref(`installationWarning.lastDisplayed`, Math.round(Date.now() / 1000));
 	}
 }
